@@ -1,0 +1,17 @@
+{
+  "name": "@jackerhack/quartz5-plugin-bases-map-view",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": { ".": { "import": "./dist/index.js" } },
+  "quartz": {
+    "name": "bases-map-view",
+    "displayName": "Bases Map View",
+    "category": "transformer",
+    "version": "0.1.0",
+    "quartzVersion": ">=5.0.0",
+    "requiresInstall": false,
+    "dependencies": [],
+    "defaultOrder": 51,
+    "defaultEnabled": true
+  }
+}
