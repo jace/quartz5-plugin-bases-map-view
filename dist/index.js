@@ -1,22 +1,30 @@
 // Registers a "map" view type with bases-page's view registry, so a Base with a
-// `type: map` view renders as an interactive MapLibre map (tab beside the table)
-// on the published site — markers from each matched note's `coordinates`, click →
-// the note's page. Uses the hosted TVC brand style; no vault dependency.
+// `type: map` view renders as an interactive MapLibre map (tab beside the table),
+// markers from each matched note's `coordinates`, click → the note's page.
+//
+// Brand-agnostic: the map style and marker colour come from plugin options
+// (`styleUrl`, `markerColor`), so no site-specific values are baked in. `styleUrl`
+// may contain `{mode}`, replaced with `light`/`dark` from Quartz's theme.
 import { h } from "preact";
 import { viewRegistry } from "../../bases-page/dist/registry.js";
 
 const CSS =
   ".bases-map{height:70vh;min-height:360px;margin:1rem 0;border-radius:8px;overflow:hidden}";
 
+const DEFAULT_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+
 const SCRIPT = `
 document.addEventListener("nav", () => {
   document.querySelectorAll(".bases-map:not([data-init])").forEach((el) => {
     el.setAttribute("data-init", "1");
     const markers = JSON.parse(el.dataset.markers || "[]");
-    let center = [77.647, 12.3503];
-    let zoom = Number(el.dataset.zoom) || 14;
-    try { const c = JSON.parse(el.dataset.center); if (Array.isArray(c)) center = [c[1], c[0]]; } catch (e) {}
     const dark = document.documentElement.getAttribute("saved-theme") === "dark";
+    const styleUrl = (el.dataset.styleUrl || "${DEFAULT_STYLE}").replace("{mode}", dark ? "dark" : "light");
+    const markerColor = el.dataset.markerColor || "#2563eb";
+    const textColor = dark ? "#e6e6e6" : "#333333";
+    const haloColor = dark ? "#1a1a1a" : "#ffffff";
+    let center = null, zoom = Number(el.dataset.zoom) || 14;
+    try { const c = JSON.parse(el.dataset.center); if (Array.isArray(c)) center = [c[1], c[0]]; } catch (e) {}
     if (!document.getElementById("maplibre-css")) {
       const link = document.createElement("link");
       link.id = "maplibre-css"; link.rel = "stylesheet";
@@ -25,27 +33,30 @@ document.addEventListener("nav", () => {
     }
     const boot = () => {
       const map = new maplibregl.Map({
-        container: el,
-        style: "https://docs.tvc.farm/static/map/tvc-base-" + (dark ? "dark" : "light") + ".json",
-        center: center, zoom: zoom,
+        container: el, style: styleUrl,
+        center: center || [0, 0], zoom: center ? zoom : 1,
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
       map.on("load", () => {
-        const fc = { type: "FeatureCollection", features: markers.map((m) => ({
+        const feats = markers.map((m) => ({
           type: "Feature", properties: { title: m.title, slug: m.slug },
-          geometry: { type: "Point", coordinates: [m.lng, m.lat] } })) };
-        map.addSource("places", { type: "geojson", data: fc });
+          geometry: { type: "Point", coordinates: [m.lng, m.lat] } }));
+        map.addSource("places", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
         map.addLayer({ id: "places", type: "circle", source: "places",
-          paint: { "circle-radius": 6, "circle-color": "#18723c",
-            "circle-stroke-width": 2, "circle-stroke-color": dark ? "#141613" : "#fbfaf6" } });
+          paint: { "circle-radius": 6, "circle-color": markerColor,
+            "circle-stroke-width": 2, "circle-stroke-color": haloColor } });
         map.addLayer({ id: "places-label", type: "symbol", source: "places",
           layout: { "text-field": ["get", "title"], "text-size": 11,
             "text-offset": [0, 1.3], "text-anchor": "top", "text-font": ["Noto Sans Regular"] },
-          paint: { "text-color": dark ? "#dcd6c8" : "#37312a",
-            "text-halo-color": dark ? "#141613" : "#fbfaf6", "text-halo-width": 1.5 } });
-        map.on("click", "places", (e) => { location.href = e.features[0].properties.slug; });
+          paint: { "text-color": textColor, "text-halo-color": haloColor, "text-halo-width": 1.5 } });
+        map.on("click", "places", (e) => { const s = e.features[0].properties.slug; location.href = s.charAt(0) === "/" ? s : "/" + s; });
         map.on("mouseenter", "places", () => { map.getCanvas().style.cursor = "pointer"; });
         map.on("mouseleave", "places", () => { map.getCanvas().style.cursor = ""; });
+        if (!center && feats.length) {
+          const b = new maplibregl.LngLatBounds();
+          feats.forEach((f) => b.extend(f.geometry.coordinates));
+          map.fitBounds(b, { padding: 40, maxZoom: 16, duration: 0 });
+        }
       });
     };
     if (window.maplibregl) boot();
@@ -58,7 +69,8 @@ document.addEventListener("nav", () => {
 });
 `;
 
-function render({ entries, view }) {
+function render({ entries, view, options }) {
+  const opts = options || {};
   const coordProp = String(view.coordinates || "note.coordinates").replace(/^note\./, "");
   const iconProp = String(view.markerIcon || "note.kind").replace(/^note\./, "");
   const markers = [];
@@ -74,15 +86,24 @@ function render({ entries, view }) {
   }
   let center = "";
   try { if (view.center) { JSON.parse(String(view.center)); center = String(view.center); } } catch (e) {}
-  return h("div", {
+  const props = {
     class: "bases-map",
     "data-markers": JSON.stringify(markers),
     "data-center": center,
     "data-zoom": String(view.defaultZoom || view.minZoom || 14),
-  });
+  };
+  if (opts.styleUrl) props["data-style-url"] = String(opts.styleUrl);
+  if (opts.markerColor) props["data-marker-color"] = String(opts.markerColor);
+  return h("div", props);
 }
 
-viewRegistry.register({ id: "map", name: "Map", icon: "map", css: CSS, afterDOMLoaded: SCRIPT, render });
-
-const BasesMapView = () => ({ name: "BasesMapView" });
+// Register in the factory so the plugin's config options reach the renderer via
+// ViewRendererProps.options. htmlPlugins keeps it a valid (no-op) transformer.
+const BasesMapView = (opts) => {
+  viewRegistry.register({
+    id: "map", name: "Map", icon: "map",
+    css: CSS, afterDOMLoaded: SCRIPT, options: opts || {}, render,
+  });
+  return { name: "BasesMapView", htmlPlugins: () => [] };
+};
 export default BasesMapView;
