@@ -7,6 +7,7 @@
 // may contain `{mode}`, replaced with `light`/`dark` from Quartz's theme.
 import { h } from "preact";
 import { viewRegistry } from "../../bases-page/dist/registry.js";
+import { mapDataAttributes } from "./markers.js";
 
 const CSS =
   ".bases-map{height:70vh;min-height:360px;margin:1rem 0;border-radius:8px;overflow:hidden}";
@@ -79,32 +80,10 @@ document.addEventListener("nav", () => {
 });
 `;
 
+// The <div class="bases-map"> the client script hydrates. All data-* attribute
+// logic lives in ./markers.js so it's unit-testable without preact/registry.
 function render({ entries, view, options }) {
-  const opts = options || {};
-  const coordProp = String(view.coordinates || "note.coordinates").replace(/^note\./, "");
-  const iconProp = String(view.markerIcon || "note.kind").replace(/^note\./, "");
-  const markers = [];
-  for (const e of entries || []) {
-    const c = e.properties && e.properties[coordProp];
-    if (typeof c !== "string" || !c.includes(",")) continue;
-    const parts = c.split(",").map((x) => Number(x.trim()));
-    if (parts.length !== 2 || parts.some(Number.isNaN)) continue;
-    markers.push({
-      lat: parts[0], lng: parts[1], title: e.title, slug: e.slug,
-      kind: (e.properties && e.properties[iconProp]) || "",
-    });
-  }
-  let center = "";
-  try { if (view.center) { JSON.parse(String(view.center)); center = String(view.center); } } catch (e) {}
-  const props = {
-    class: "bases-map",
-    "data-markers": JSON.stringify(markers),
-    "data-center": center,
-    "data-zoom": String(view.defaultZoom || view.minZoom || 14),
-  };
-  if (opts.styleUrl) props["data-style-url"] = String(opts.styleUrl);
-  if (opts.markerColor) props["data-marker-color"] = String(opts.markerColor);
-  return h("div", props);
+  return h("div", mapDataAttributes(entries, view, options));
 }
 
 // Register in the factory so the plugin's config options reach the renderer via

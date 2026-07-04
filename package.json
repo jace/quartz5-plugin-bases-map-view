@@ -3,6 +3,12 @@
   "type": "module",
   "main": "./dist/index.js",
   "exports": { ".": { "import": "./dist/index.js" } },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  },
   "quartz": {
     "name": "bases-map-view",
     "displayName": "Bases Map View",
